@@ -39,10 +39,10 @@ cd scrape-specter
 pip install -r requirements.txt
 ```
 
-4. Set up the PostgreSQL database and update the `.env` file with your `DATABASE_URL`, for example:
+4. Set up the Mongo DB database and update the `.env` file with your `MONGODB_URL`, for example:
 
 ```
-DATABASE_URL=postgresql://username:password@localhost/yourdatabase
+MONGODB_URL=mongodb://localhost:27017
 ```
 
 5. Initialize the database tables:
