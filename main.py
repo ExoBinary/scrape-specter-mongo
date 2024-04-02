@@ -4,7 +4,6 @@ from urllib.parse import urlparse
 import re
 import uvicorn
 from modules.spider import PyppeteerSpider
-from modules.database import insert_crawled_domain
 from pymongo import MongoClient
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
@@ -76,10 +75,7 @@ async def crawl(url: str):
         return {"detail": f"Crawling initiated for domain: {domain}"}
     lock_dict[domain] = True
 
-    # Insert domain into MongoDB
-    insert_crawled_domain(domain)
-
-    # Initiate crawling in a separate process
+     # Initiate crawling in a separate process
     p = Process(target=run_crawler, args=(domain,))
     p.start()
 

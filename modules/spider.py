@@ -9,6 +9,7 @@ class PyppeteerSpider(scrapy.Spider):
     name = 'pyppeteer_spider'
     page_count = 0
     max_pages = 10
+    visited_domains = set()  # Maintain a set of visited domains
 
     load_dotenv()
 
@@ -22,48 +23,54 @@ class PyppeteerSpider(scrapy.Spider):
         self.mongo_client = MongoClient(MONGODB_URL)
         self.db = self.mongo_client['crawled_domains']
 
-    def spider_closed(self, spider, reason):
-        status = 'COMPLETED' if reason == 'finished' else 'FAILURE'
-        if self.domain_id:
-            domain = self.db['crawled_domains'].find_one({"_id": self.domain_id})
-            if domain:
-                domain['status'] = status
-                self.db['crawled_domains'].update_one({"_id": self.domain_id}, {"$set": domain})
-                print("Domain status updated:", domain)
-
-    def start_requests(self):
-        for url in self.start_urls:
-            domain_url = urlparse(url).netloc
-            domain = {"domain_url": domain_url, "status": "PENDING"}
-            self.domain_id = self.db['crawled_domains'].insert_one(domain).inserted_id
-            print("Inserted domain with ID:", self.domain_id)
-            yield scrapy.Request(url, meta={'pyppeteer': True, 'domain_id': str(self.domain_id)})
-       
+      
 
     def parse(self, response):
-        
-        if self.page_count < self.max_pages:
-            self.page_count += 1
-            visible_texts = response.xpath('//body//*[not(self::script or self::style or self::meta or self::link)]/text()').getall()
+     if self.page_count < self.max_pages:
+        self.page_count += 1
+        visible_texts = response.xpath('//body//*[not(self::script or self::style or self::meta or self::link)]/text()').getall()
+        print("Response body:", response.body)
 
-            clean_text = ' '.join([re.sub(r'\s+', ' ', node).strip() for node in visible_texts if node.strip()])
-            page = self.db['scrapped_pages'].find_one({"page_url": response.url})           
+        clean_text = ' '.join([re.sub(r'\s+', ' ', node).strip() for node in visible_texts if node.strip()])
 
+        # Extract main domain from the response URL
+        main_domain = urlparse(response.url).netloc
 
-            if page:
-                page["content"] = clean_text
-                self.db['scrapped_pages'].update_one({"_id": page["_id"]}, {"$set": page})
-                print("Page updated in database:", page)
+        # Check if the page URL is valid
+        if response.url.startswith("http"):
+            # Check if content is not empty
+            if clean_text:
+                # Page data
+                page_data = {
+                    "page_url": response.url,
+                    "page_content": clean_text,
+                    "page_size": len(response.body)
+                }
+
+                # Check if domain document exists
+                domain_document = self.db['scrapped_pages'].find_one({"domain": main_domain})
+
+                if domain_document:
+                    # Update existing domain document with new page
+                    self.db['scrapped_pages'].update_one(
+                        {"_id": domain_document["_id"]},
+                        {"$push": {"pages": page_data}}
+                    )
+                    print("Page inserted into existing domain document:", page_data)
+                else:
+                    # Create new domain document with the page
+                    domain_data = {
+                        "domain": main_domain,
+                        "pages": [page_data]
+                    }
+                    self.db['scrapped_pages'].insert_one(domain_data)
+                    print("Domain document created with page:", domain_data)
             else:
-                page_data = { "page_url": response.url, "page_size": len(response.body), "page_content": clean_text, "crawled_domain_id": response.meta['domain_id']}
-                self.db['scrapped_pages'].insert_one(page_data)
-                print("Page inserted into database:", page_data)
+                print("Skipping empty page:", response.url)
 
-            current_domain = urlparse(response.url).netloc
-            # self.mongo_client.close()
-            # print("MongoDB client closed.")
-            for a in response.css('a::attr(href)'):
-                link = a.extract()
-                link_domain = urlparse(link).netloc
-                if current_domain == link_domain or not link_domain:
-                    yield response.follow(a, self.parse, meta={'domain_id': response.meta['domain_id']})
+        current_domain = urlparse(response.url).netloc
+        for a in response.css('a::attr(href)'):
+            link = a.extract()
+            link_domain = urlparse(link).netloc
+            if current_domain == link_domain or not link_domain:
+                yield response.follow(a, self.parse, meta={'domain_id': main_domain})
