@@ -25,7 +25,6 @@ if MONGODB_URL is None:
 
 # Declare global variables for manager and lock dictionary
 manager = None
-lock_dict = None
 mongo_client = None
 
 def run_crawler(domain):
@@ -53,7 +52,7 @@ async def crawl(url: str):
     :param url: URL to crawl.
     :return: Response indicating the crawling initiation status.
     """
-    global lock_dict, mongo_client
+    global mongo_client
 
     # Ensure URL starts with http or https
     if not url.startswith("http://") and not url.startswith("https://"):
@@ -67,23 +66,13 @@ async def crawl(url: str):
     parsed_url = urlparse(url)
     domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
 
-    # Check and set lock for the domain
-    if lock_dict is None:
-        manager = Manager()
-        lock_dict = manager.dict()
-    if domain in lock_dict and lock_dict[domain]:
-        return {"detail": f"Crawling initiated for domain: {domain}"}
-    lock_dict[domain] = True
+    
 
      # Initiate crawling in a separate process
     p = Process(target=run_crawler, args=(domain,))
     p.start()
 
     return {"detail": f"Crawling initiated for domain: {domain}"}
-
-if __name__ == "__main__":
-    # Ensure proper multiprocessing support on Windows
-    freeze_support()
 
     # Connect to MongoDB
     mongo_client = MongoClient(MONGODB_URL)
